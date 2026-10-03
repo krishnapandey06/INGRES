@@ -1,153 +1,177 @@
 import os
-import re
 import pandas as pd
 
 
 # ---------------------------------------------------------
-# 1. Resolve project paths
+# INGRES - Module 1
+# Data Preprocessing & Validation
 # ---------------------------------------------------------
 
+# Resolve project paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(SCRIPT_DIR)
 
 DATA_DIR = os.path.join(BASE_DIR, "data")
-CSV_PATH = os.path.join(DATA_DIR, "INGRES_Step1_Cleaned_Dataset.csv")
+INPUT_CSV_PATH = os.path.join(
+    DATA_DIR,
+    "INGRES_Step1_Cleaned_Dataset.csv"
+)
 
 
-# ---------------------------------------------------------
-# 2. Load the cleaned dataset
-# ---------------------------------------------------------
+def load_cleaned_dataset():
+    """Load the cleaned groundwater dataset."""
 
-def load_cleaned_data():
-    """Loads the cleaned groundwater dataset."""
-
-    if not os.path.exists(CSV_PATH):
+    if not os.path.exists(INPUT_CSV_PATH):
         raise FileNotFoundError(
-            f"Cleaned dataset not found at: {CSV_PATH}. "
+            f"Cleaned dataset not found at:\n{INPUT_CSV_PATH}\n"
             "Run datacleaning.py first."
         )
 
-    df = pd.read_csv(CSV_PATH)
-
-    print(f"Loaded {len(df)} records from cleaned dataset.")
+    df = pd.read_csv(INPUT_CSV_PATH)
 
     return df
 
 
-# ---------------------------------------------------------
-# 3. Basic text preprocessing
-# ---------------------------------------------------------
+def validate_dataset(df):
+    """Validate the cleaned dataset for Module 1 requirements."""
 
-def clean_text(text):
-    """
-    Performs basic text cleaning.
+    print("\n----- INGRES Module 1: Data Validation -----")
 
-    Used mainly for text fields such as groundwater
-    quality parameters.
-    """
+    # -----------------------------------------------------
+    # Basic information
+    # -----------------------------------------------------
 
-    if pd.isna(text):
-        return ""
+    print(f"Total records: {len(df)}")
+    print(f"Total columns: {len(df.columns)}")
 
-    text = str(text)
+    # -----------------------------------------------------
+    # Required hierarchy columns
+    # -----------------------------------------------------
 
-    # Convert to lowercase
-    text = text.lower()
-
-    # Remove unwanted characters
-    text = re.sub(r"[^a-z0-9\s]", " ", text)
-
-    # Remove extra spaces
-    text = re.sub(r"\s+", " ", text).strip()
-
-    return text
-
-
-# ---------------------------------------------------------
-# 4. Prepare text columns
-# ---------------------------------------------------------
-
-def preprocess_text_columns(df):
-    """
-    Cleans the text-based columns used by the retrieval
-    and RAG components.
-    """
-
-    text_columns = [
+    hierarchy_columns = [
         "STATE",
         "DISTRICT",
-        "ASSESSMENT_UNIT",
-        "Major_Quality_Parameters",
-        "Other_Quality_Parameters",
-        "Extraction_Category"
+        "ASSESSMENT_UNIT"
     ]
 
-    for column in text_columns:
-        if column in df.columns:
-            df[column] = df[column].apply(clean_text)
+    missing_columns = [
+        column
+        for column in hierarchy_columns
+        if column not in df.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(
+            f"Missing hierarchy columns: {missing_columns}"
+        )
+
+    print("\nHierarchy columns:")
+    print("STATE → DISTRICT → ASSESSMENT_UNIT")
+
+    # -----------------------------------------------------
+    # Check missing hierarchy values
+    # -----------------------------------------------------
+
+    print("\nMissing hierarchy values:")
+
+    missing_values = df[hierarchy_columns].isna().sum()
+
+    print(missing_values)
+
+    if missing_values.sum() == 0:
+        print("✓ No missing hierarchy values")
+    else:
+        print("⚠ Missing hierarchy values detected")
+
+    # -----------------------------------------------------
+    # Check duplicate complete records
+    # -----------------------------------------------------
+
+    duplicate_rows = df.duplicated().sum()
+
+    print(f"\nDuplicate complete records: {duplicate_rows}")
+
+    if duplicate_rows == 0:
+        print("✓ No duplicate records")
+    else:
+        print("⚠ Duplicate records detected")
+
+    # -----------------------------------------------------
+    # Check STATE + DISTRICT uniqueness
+    # -----------------------------------------------------
+
+    duplicate_hierarchy = df.duplicated(
+        subset=["STATE", "DISTRICT"]
+    ).sum()
+
+    print(
+        f"Duplicate STATE + DISTRICT combinations: "
+        f"{duplicate_hierarchy}"
+    )
+
+    if duplicate_hierarchy == 0:
+        print("✓ STATE + DISTRICT combinations are unique")
+    else:
+        print("⚠ Duplicate STATE + DISTRICT combinations detected")
+
+    # -----------------------------------------------------
+    # Unique hierarchy information
+    # -----------------------------------------------------
+
+    print("\nHierarchy statistics:")
+    print(f"Unique states: {df['STATE'].nunique()}")
+    print(f"Unique districts: {df['DISTRICT'].nunique()}")
+    print(
+        f"Unique assessment units: "
+        f"{df['ASSESSMENT_UNIT'].nunique()}"
+    )
+
+    # -----------------------------------------------------
+    # Check assessment unit
+    # -----------------------------------------------------
+
+    print("\nAssessment units:")
+    print(df["ASSESSMENT_UNIT"].value_counts())
+
+    # -----------------------------------------------------
+    # Dataset validation summary
+    # -----------------------------------------------------
+
+    print("\n----- Validation Summary -----")
+
+    checks = {
+        "Records present": len(df) > 0,
+        "Required hierarchy columns present": not missing_columns,
+        "No missing hierarchy values":
+            missing_values.sum() == 0,
+        "No duplicate complete records":
+            duplicate_rows == 0,
+        "Unique STATE + DISTRICT":
+            duplicate_hierarchy == 0
+    }
+
+    for check, result in checks.items():
+        status = "PASS" if result else "FAIL"
+        print(f"{status}: {check}")
+
+    if all(checks.values()):
+        print("\n✓ Module 1 dataset validation successful!")
+    else:
+        print("\n⚠ Module 1 validation requires attention.")
 
     return df
 
 
-# ---------------------------------------------------------
-# 5. Create searchable text
-# ---------------------------------------------------------
+def main():
+    print("----- INGRES Preprocessing -----")
+    print(f"Loading dataset from:\n{INPUT_CSV_PATH}")
 
-def create_search_text(row):
-    """
-    Combines important groundwater information into one
-    searchable text representation.
-    """
+    df = load_cleaned_dataset()
 
-    parts = [
-        f"state {row.get('STATE', '')}",
-        f"district {row.get('DISTRICT', '')}",
-        f"assessment unit {row.get('ASSESSMENT_UNIT', '')}",
-        f"groundwater status {row.get('Extraction_Category', '')}",
-        f"major quality parameters {row.get('Major_Quality_Parameters', '')}",
-        f"other quality parameters {row.get('Other_Quality_Parameters', '')}"
-    ]
+    print("\nDataset loaded successfully.")
 
-    return " ".join(parts)
+    validate_dataset(df)
 
-
-# ---------------------------------------------------------
-# 6. Prepare complete dataset for retrieval
-# ---------------------------------------------------------
-
-def prepare_dataset():
-    """
-    Loads and preprocesses the cleaned groundwater dataset.
-    """
-
-    df = load_cleaned_data()
-
-    # Clean text fields
-    df = preprocess_text_columns(df)
-
-    # Create a combined searchable text field
-    df["search_text"] = df.apply(create_search_text, axis=1)
-
-    return df
-
-
-# ---------------------------------------------------------
-# 7. Test the preprocessing module
-# ---------------------------------------------------------
 
 if __name__ == "__main__":
-
-    print("----- INGRES Preprocessing -----")
-
-    df = prepare_dataset()
-
-    print("\nDataset shape:")
-    print(df.shape)
-
-    print("\nColumns:")
-    print(df.columns.tolist())
-
-    print("\nSample searchable text:")
-
-    if len(df) > 0:
-        print(df["search_text"].iloc[0])
+    main()

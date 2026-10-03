@@ -1,81 +1,257 @@
 import os
+import shutil
 import pandas as pd
+
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 
-# Resolve paths safely
-try:
-    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-except NameError:
-    SCRIPT_DIR = os.getcwd()
+
+# --------------------------------------------------
+# PATH CONFIGURATION
+# --------------------------------------------------
+
+SCRIPT_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
 
 BASE_DIR = os.path.dirname(SCRIPT_DIR)
-DATA_DIR = os.path.join(BASE_DIR, "data")
-CSV_PATH = os.path.join(DATA_DIR, "INGRES_Step1_Cleaned_Dataset.csv")
-CHROMA_DB_DIR = os.path.join(DATA_DIR, "chroma_db")
 
-# Singleton embedding configuration (saves memory)
-EMBEDDING_MODEL = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+DATA_DIR = os.path.join(
+    BASE_DIR,
+    "data"
+)
+
+CSV_PATH = os.path.join(
+    DATA_DIR,
+    "INGRES_Step1_Cleaned_Dataset.csv"
+)
+
+CHROMA_DB_DIR = os.path.join(
+    DATA_DIR,
+    "chroma_db"
+)
+
+COLLECTION_NAME = "ingres_groundwater"
+
+
+# --------------------------------------------------
+# EMBEDDING MODEL
+# --------------------------------------------------
+
+EMBEDDING_MODEL = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2"
+)
+
+
+# --------------------------------------------------
+# BUILD VECTOR STORE
+# --------------------------------------------------
 
 def build_vector_store():
-    """Converts CSV rows into rich textual documents and indexes them into ChromaDB."""
-    print(f"Loading cleaned dataset from {CSV_PATH}...")
-    
+
+    print(
+        f"Loading cleaned dataset from {CSV_PATH}..."
+    )
+
     if not os.path.exists(CSV_PATH):
-        raise FileNotFoundError(f"Missing source file: {CSV_PATH}")
-        
-    df = pd.read_csv(CSV_PATH)
+
+        raise FileNotFoundError(
+            f"Missing source file: {CSV_PATH}"
+        )
+
+    # ----------------------------------------------
+    # REMOVE OLD VECTOR DATABASE
+    # ----------------------------------------------
+
+    if os.path.exists(CHROMA_DB_DIR):
+
+        print(
+            "\nRemoving existing Chroma database..."
+        )
+
+        shutil.rmtree(
+            CHROMA_DB_DIR
+        )
+
+    # ----------------------------------------------
+    # LOAD DATASET
+    # ----------------------------------------------
+
+    df = pd.read_csv(
+        CSV_PATH
+    )
+
     documents = []
-    
+    document_ids = []
+
+    # ----------------------------------------------
+    # CREATE DOCUMENTS
+    # ----------------------------------------------
+
     for idx, row in df.iterrows():
+
         text_profile = (
             f"State: {row['STATE']}\n"
             f"District: {row['DISTRICT']}\n"
-            f"Assessment Unit: {row['ASSESSMENT_UNIT']}\n"
-            f"Groundwater Status: {row['Extraction_Category']} (Stage of Extraction: {row['Stage_of_Ground_Water_Extraction_pct']}%)\n"
-            f"Annual Recharge: {row['Annual_Ground_Water_Recharge_ham']} ham\n"
-            f"Total Extraction: {row['Total_Ground_Water_Extraction_ham']} ham "
-            f"(Irrigation: {row['Extraction_Irrigation_ham']} ham, Domestic: {row['Extraction_Domestic_ham']} ham, Industrial: {row['Extraction_Industrial_ham']} ham)\n"
-            f"Major Quality Parameters: {row['Major_Quality_Parameters']}\n"
-            f"Other Quality Parameters: {row['Other_Quality_Parameters']}\n"
-            f"Rainfall: {row['Rainfall_mm']} mm"
+            f"Assessment Unit: "
+            f"{row['ASSESSMENT_UNIT']}\n"
+            f"Groundwater Status: "
+            f"{row['Extraction_Category']} "
+            f"(Stage of Extraction: "
+            f"{row['Stage_of_Ground_Water_Extraction_pct']}%)\n"
+            f"Annual Recharge: "
+            f"{row['Annual_Ground_Water_Recharge_ham']} ham\n"
+            f"Total Extraction: "
+            f"{row['Total_Ground_Water_Extraction_ham']} ham "
+            f"(Irrigation: "
+            f"{row['Extraction_Irrigation_ham']} ham, "
+            f"Domestic: "
+            f"{row['Extraction_Domestic_ham']} ham, "
+            f"Industrial: "
+            f"{row['Extraction_Industrial_ham']} ham)\n"
+            f"Major Quality Parameters: "
+            f"{row['Major_Quality_Parameters']}\n"
+            f"Other Quality Parameters: "
+            f"{row['Other_Quality_Parameters']}\n"
+            f"Rainfall: "
+            f"{row['Rainfall_mm']} mm"
         )
-        
+
         metadata = {
-            "state": str(row['STATE']).lower(),
-            "district": str(row['DISTRICT']).lower(),
-            "category": str(row['Extraction_Category']),
-            "stage_pct": float(row['Stage_of_Ground_Water_Extraction_pct'])
+            "state": str(
+                row["STATE"]
+            ).lower(),
+
+            "district": str(
+                row["DISTRICT"]
+            ).lower(),
+
+            "category": str(
+                row["Extraction_Category"]
+            ),
+
+            "stage_pct": float(
+                row[
+                    "Stage_of_Ground_Water_Extraction_pct"
+                ]
+            ),
+
+            "row_id": int(idx)
         }
-        
-        documents.append(Document(page_content=text_profile, metadata=metadata))
-        
-    print(f"Created {len(documents)} document profiles. Generating embeddings...")
-    
+
+        document = Document(
+            page_content=text_profile,
+            metadata=metadata
+        )
+
+        documents.append(
+            document
+        )
+
+        # Unique ID for every dataset row
+        document_ids.append(
+            f"groundwater_{idx}"
+        )
+
+    print(
+        f"Created {len(documents)} "
+        f"document profiles."
+    )
+
+    # ----------------------------------------------
+    # CREATE VECTOR STORE
+    # ----------------------------------------------
+
+    print(
+        "Generating embeddings..."
+    )
+
     vector_store = Chroma.from_documents(
         documents=documents,
         embedding=EMBEDDING_MODEL,
+        ids=document_ids,
+        collection_name=COLLECTION_NAME,
         persist_directory=CHROMA_DB_DIR
     )
-    print(f"Vector Database successfully created at: {CHROMA_DB_DIR}")
+
+    print(
+        "\nVector Database successfully "
+        f"created at: {CHROMA_DB_DIR}"
+    )
+
+    print(
+        f"Collection: {COLLECTION_NAME}"
+    )
+
     return vector_store
 
-def query_vector_store(query_text: str, top_k: int = 3):
-    """Executes similarity search on the indexed vector store."""
+
+# --------------------------------------------------
+# QUERY VECTOR STORE
+# --------------------------------------------------
+
+def query_vector_store(
+    query_text: str,
+    top_k: int = 3
+):
+
     vector_store = Chroma(
-        persist_directory=CHROMA_DB_DIR, 
+        collection_name=COLLECTION_NAME,
+        persist_directory=CHROMA_DB_DIR,
         embedding_function=EMBEDDING_MODEL
     )
-    results = vector_store.similarity_search(query_text, k=top_k)
+
+    results = vector_store.similarity_search(
+        query_text,
+        k=top_k
+    )
+
     return results
 
+
+# --------------------------------------------------
+# MAIN TEST
+# --------------------------------------------------
+
 if __name__ == "__main__":
-    os.makedirs(DATA_DIR, exist_ok=True)
+
+    os.makedirs(
+        DATA_DIR,
+        exist_ok=True
+    )
+
+    # Build vector store
     build_vector_store()
-    
-    print("\n--- Testing Vector Search ---")
-    test_hits = query_vector_store("districts with quality issues or high extraction")
-    
-    for i, doc in enumerate(test_hits, 1):
-        print(f"\n[Result {i}]:\n{doc.page_content}")
+
+    # ----------------------------------------------
+    # SEMANTIC SEARCH TESTS
+    # ----------------------------------------------
+
+    test_queries = [
+        "districts with very high groundwater extraction",
+        "districts receiving very high rainfall",
+        "districts with groundwater quality problems"
+    ]
+
+    for query in test_queries:
+
+        print("\n==============================================")
+        print("Semantic Search Query:")
+        print(query)
+        print("==============================================")
+
+        results = query_vector_store(
+            query,
+            top_k=5
+        )
+
+        for i, doc in enumerate(results, 1):
+
+            print(
+                f"\n--- Result {i} ---"
+            )
+
+            print(
+                doc.page_content
+            )

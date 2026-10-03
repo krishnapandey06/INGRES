@@ -6,3 +6,6 @@ data/chroma_db/
 .venv/
 venv/
 .env
+
+src/*_backup.py
+code.txt
